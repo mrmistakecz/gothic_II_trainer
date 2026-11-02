@@ -51,6 +51,21 @@ namespace Trainer {
 			g_state.lastWorld = world;
 			g_waypoints.ready = false;
 			g_positions.loaded = false;
+			g_state.frozenCaptured = false;
+		}
+
+		oCWorldTimer* timer = ogame->GetWorldTimer();
+		if (g_state.freezeTime && timer) {
+			if (!g_state.frozenCaptured) {
+				g_state.frozenWorldTime = timer->worldTime;
+				g_state.frozenDay = timer->day;
+				g_state.frozenCaptured = true;
+			}
+			timer->worldTime = g_state.frozenWorldTime;
+			timer->day = g_state.frozenDay;
+		}
+		else {
+			g_state.frozenCaptured = false;
 		}
 
 		if (hero->IsDead())

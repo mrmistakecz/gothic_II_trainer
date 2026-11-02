@@ -2,10 +2,13 @@
 // inside its namespace (see Plugin.cpp). Order matters.
 #include "Game/State.hpp"
 #include "Game/Database.hpp"
+#include "Game/NpcDatabase.hpp"
 #include "Ui/Widgets.hpp"
 #include "Ui/TabHero.hpp"
 #include "Ui/TabItems.hpp"
+#include "Ui/TabNpcs.hpp"
 #include "Ui/TabWorld.hpp"
+#include "Ui/TabScripts.hpp"
 #include "Ui/TabConsole.hpp"
 #include "Ui/TabSettings.hpp"
 #include "Ui/MainWindow.hpp"

@@ -26,6 +26,9 @@ namespace GT { namespace Overlay {
 		bool        g_fontsDirty = true;
 		bool        g_textureDirty = true;
 		bool        g_clearInputPending = false;
+		bool        g_seenDirectInputMouse = false;
+		POINT       g_lastSysCursor = { -1, -1 };
+		float       g_wheelAccum = 0.0f;
 
 		IDirect3DDevice7* g_device = nullptr;
 		IDirectDraw7*     g_ddraw = nullptr;
@@ -159,8 +162,7 @@ namespace GT { namespace Overlay {
 					case WM_DEADCHAR:
 						return 0;
 					case WM_MOUSEWHEEL:
-						if (Settings::Get().systemCursor)
-							io.AddMouseWheelEvent(0.0f, (float)GET_WHEEL_DELTA_WPARAM(wp) / (float)WHEEL_DELTA);
+						g_wheelAccum += (float)GET_WHEEL_DELTA_WPARAM(wp) / (float)WHEEL_DELTA;
 						return 0;
 				}
 			}
@@ -282,25 +284,29 @@ namespace GT { namespace Overlay {
 			px = AutoFontPixels(screenHeight);
 		g_fontPx = px;
 
+		// Kept small on purpose: DirectX 7 drivers may refuse huge textures.
 		static const ImWchar textRanges[] = {
 			0x0020, 0x00FF, // Basic Latin + Latin-1
 			0x0100, 0x017F, // Latin Extended-A (č ď ě ň ř š ť ů ž ...)
-			0x0180, 0x024F, // Latin Extended-B
-			0x0370, 0x03FF, // Greek
-			0x0400, 0x052F, // Cyrillic (ruské mody)
-			0x2000, 0x206F, // General punctuation (– — „ “ …)
-			0x20A0, 0x20CF, // Currency
-			0x2100, 0x214F, // Letterlike
-			0x2190, 0x21FF, // Arrows
-			0x2200, 0x22FF, // Math operators (∞)
+			0x0400, 0x045F, // Cyrillic (ruské mody)
+			0x2010, 0x2027, // – — ‘ ’ „ “ • …
+			0x20AC, 0x20AC, // €
+			0x2190, 0x2193, // ← ↑ → ↓
+			0x221E, 0x221E, // ∞
+			0,
+		};
+		static const ImWchar titleRanges[] = {
+			0x0020, 0x00FF,
+			0x0100, 0x017F,
+			0x0400, 0x045F,
+			0x2010, 0x2027,
 			0,
 		};
 		static const ImWchar symbolRanges[] = {
-			0x2190, 0x21FF,
-			0x2300, 0x23FF,
-			0x25A0, 0x25FF,
-			0x2600, 0x26FF,
-			0x2700, 0x27BF,
+			0x2190, 0x2193, // arrows
+			0x25B2, 0x25BC, // ▲ ▼
+			0x2605, 0x2606, // ★ ☆
+			0x2713, 0x2718, // ✓ ✔ ✕ ✖ ✗ ✘
 			0,
 		};
 
@@ -329,13 +335,18 @@ namespace GT { namespace Overlay {
 			mainFont = io.Fonts->AddFontDefault(&def);
 		}
 
-		g_titleFont = TryAddFont(dir + "\\seguisb.ttf", px * 1.3f, &cfg, textRanges);
+		ImFontConfig titleCfg;
+		titleCfg.OversampleH = 1;
+		titleCfg.OversampleV = 1;
+		titleCfg.PixelSnapH = true;
+		g_titleFont = TryAddFont(dir + "\\seguisb.ttf", px * 1.3f, &titleCfg, titleRanges);
 		if (!g_titleFont)
-			g_titleFont = TryAddFont(dir + "\\segoeuib.ttf", px * 1.3f, &cfg, textRanges);
+			g_titleFont = TryAddFont(dir + "\\segoeuib.ttf", px * 1.3f, &titleCfg, titleRanges);
 		if (!g_titleFont)
 			g_titleFont = mainFont;
 
 		io.FontDefault = mainFont;
+		io.Fonts->TexDesiredWidth = 1024;
 		io.Fonts->Build();
 		ApplyStyle(px);
 		Log::Write("Fonts built: %.0f px", px);
@@ -468,13 +479,24 @@ namespace GT { namespace Overlay {
 		if (g_mouse.x < 0.0f || g_mouse.y < 0.0f)
 			g_mouse = ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
 
-		if (s.systemCursor) {
-			POINT p;
-			RECT rc;
-			if (GetCursorPos(&p) && ScreenToClient(window, &p) && GetClientRect(window, &rc)) {
+		// Where the cursor movement comes from: the game's DirectInput mouse
+		// (exclusive, Windows cursor frozen) or the Windows cursor (mouse
+		// disabled in the game options, windowed mode). Detected automatically.
+		POINT sysPos = { 0, 0 };
+		RECT rc = { 0, 0, 0, 0 };
+		bool haveSys = GetCursorPos(&sysPos) && ScreenToClient(window, &sysPos) && GetClientRect(window, &rc);
+		const bool sysMoved = haveSys && (sysPos.x != g_lastSysCursor.x || sysPos.y != g_lastSysCursor.y);
+		if (haveSys)
+			g_lastSysCursor = sysPos;
+		if (in.mouseDX != 0.0f || in.mouseDY != 0.0f)
+			g_seenDirectInputMouse = true;
+
+		const bool useSystem = s.systemCursor || !g_seenDirectInputMouse;
+		if (useSystem) {
+			if (haveSys && (sysMoved || s.systemCursor)) {
 				float cw = (float)ImMax(1L, rc.right - rc.left);
 				float ch = (float)ImMax(1L, rc.bottom - rc.top);
-				g_mouse = ImVec2((float)p.x * io.DisplaySize.x / cw, (float)p.y * io.DisplaySize.y / ch);
+				g_mouse = ImVec2((float)sysPos.x * io.DisplaySize.x / cw, (float)sysPos.y * io.DisplaySize.y / ch);
 			}
 		}
 		else {
@@ -492,12 +514,18 @@ namespace GT { namespace Overlay {
 		io.AddMouseButtonEvent(1, r);
 		io.AddMouseButtonEvent(2, m);
 
-		if (!s.systemCursor && in.wheel != 0.0f) {
-			float w = in.wheel;
-			if (std::fabs(w) >= 30.0f)
-				w /= 120.0f;
-			io.AddMouseWheelEvent(0.0f, ImClamp(w, -6.0f, 6.0f));
+		float wheel = 0.0f;
+		if (!useSystem && in.wheel != 0.0f) {
+			wheel = in.wheel;
+			if (std::fabs(wheel) >= 30.0f)
+				wheel /= 120.0f;
 		}
+		else if (useSystem) {
+			wheel = g_wheelAccum;
+		}
+		g_wheelAccum = 0.0f;
+		if (wheel != 0.0f)
+			io.AddMouseWheelEvent(0.0f, ImClamp(wheel, -6.0f, 6.0f));
 
 		for (const NavKey& k : kNavKeys)
 			io.AddKeyEvent(k.key, foreground && AsyncDown(k.vk));

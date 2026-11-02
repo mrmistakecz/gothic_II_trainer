@@ -4,33 +4,45 @@ namespace GOTHIC_NAMESPACE {
 namespace Trainer {
 namespace Ui {
 
+	typedef void (*TabFn)();
+
+	static void ScrollingTab(const char* id, TabFn fn) {
+		if (ImGui::BeginChild(id))
+			fn();
+		ImGui::EndChild();
+	}
+
 	static void DrawMainWindow() {
 		ImGuiIO& io = ImGui::GetIO();
 		const float em = ImGui::GetFontSize();
 
-		ImVec2 size(Smaller(em * 52.0f, io.DisplaySize.x * 0.92f), Smaller(em * 36.0f, io.DisplaySize.y * 0.88f));
+		ImVec2 size(Smaller(em * 56.0f, io.DisplaySize.x * 0.94f), Smaller(em * 38.0f, io.DisplaySize.y * 0.90f));
 		ImGui::SetNextWindowSize(size, ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSizeConstraints(ImVec2(em * 30.0f, em * 18.0f), ImVec2(FLT_MAX, FLT_MAX));
+		ImGui::SetNextWindowSizeConstraints(ImVec2(em * 32.0f, em * 20.0f), ImVec2(FLT_MAX, FLT_MAX));
 
 		bool open = true;
 		std::string title = ::GT::Text::Format(u8"Gothic Trainer  ·  %s zavře###GothicTrainer", ::GT::Overlay::KeyName(::GT::Settings::Get().toggleKey));
 		if (ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoCollapse)) {
 			if (ImGui::BeginTabBar("##tabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
 				if (ImGui::BeginTabItem(u8"Postava")) {
-					if (ImGui::BeginChild("##hero_scroll"))
-						TabHero();
-					ImGui::EndChild();
+					ScrollingTab("##hero_scroll", &TabHero);
 					ImGui::EndTabItem();
 				}
 				if (ImGui::BeginTabItem(u8"Předměty")) {
 					TabItems();
 					ImGui::EndTabItem();
 				}
+				if (ImGui::BeginTabItem(u8"Postavy a tvorové")) {
+					TabNpcs();
+					ImGui::EndTabItem();
+				}
 				if (ImGui::BeginTabItem(u8"Svět")) {
-					if (ImGui::BeginChild("##world_scroll"))
-						TabWorld();
-					ImGui::EndChild();
+					ScrollingTab("##world_scroll", &TabWorld);
+					ImGui::EndTabItem();
+				}
+				if (ImGui::BeginTabItem(u8"Skripty a úkoly")) {
+					TabScripts();
 					ImGui::EndTabItem();
 				}
 				if (ImGui::BeginTabItem(u8"Konzole")) {
@@ -38,9 +50,7 @@ namespace Ui {
 					ImGui::EndTabItem();
 				}
 				if (ImGui::BeginTabItem(u8"Nastavení")) {
-					if (ImGui::BeginChild("##settings_scroll"))
-						TabSettings();
-					ImGui::EndChild();
+					ScrollingTab("##settings_scroll", &TabSettings);
 					ImGui::EndTabItem();
 				}
 				ImGui::EndTabBar();

@@ -20,6 +20,7 @@ namespace Ui {
 				return;
 			int day = ogame->GetWorldTimer()->GetDay() + dayOffset;
 			ogame->SetTime(day, hour, minute);
+			g_state.frozenCaptured = false; // a frozen clock stays at the new time
 			::GT::Overlay::Toast(::GT::Text::Format(u8"Čas nastaven na %d:%02d", hour, minute));
 		});
 	}
@@ -54,6 +55,16 @@ namespace Ui {
 		if (ImGui::Button(u8"Půlnoc")) SetGameTime(0, 0, 1);
 		ImGui::SameLine();
 		if (ImGui::Button(u8"Další den")) SetGameTime(8, 0, 1);
+
+		ImGui::Checkbox(u8"Zastavit čas", &g_state.freezeTime);
+		Tooltip(u8"Denní doba se nemění – ideální na věčné poledne.");
+		ImGui::SameLine(Em(11.0f));
+		bool marvin = ogame->game_testmode != 0;
+		if (ImGui::Checkbox(u8"Marvin mód", &marvin)) {
+			ogame->game_testmode = marvin ? TRUE : FALSE;
+			Toast(marvin ? u8"Marvin mód zapnut (F2 = konzole hry)" : u8"Marvin mód vypnut");
+		}
+		Tooltip(u8"Původní testovací režim hry – zpřístupní konzoli F2 a klávesy Marvin módu.");
 	}
 
 	static void WorldSpeedSection() {

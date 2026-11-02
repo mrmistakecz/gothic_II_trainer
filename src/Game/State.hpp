@@ -13,6 +13,11 @@ namespace Trainer {
 		bool fastRunApplied = false;
 		bool oneHitKill = false;
 
+		bool  freezeTime = false;
+		bool  frozenCaptured = false;
+		float frozenWorldTime = 0.0f;
+		int   frozenDay = 0;
+
 		oCNpc*   lastPlayer = nullptr;
 		oCWorld* lastWorld = nullptr;
 		std::string worldKey;          // e.g. "NEWWORLD.ZEN"

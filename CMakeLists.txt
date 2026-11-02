@@ -3,7 +3,10 @@ cmake_minimum_required(VERSION 3.21)
 # Old subprojects (ogg, zlib) declare very old minimum versions
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
-# Static CRT: the plugin must not depend on the Visual C++ redistributable
+# Static CRT: the plugin must not depend on the Visual C++ redistributable.
+# The policy default makes subprojects with very old cmake_minimum_required
+# (ogg, vorbis) honor it as well, so every library uses the same runtime.
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/")

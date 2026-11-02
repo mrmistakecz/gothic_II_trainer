@@ -154,6 +154,61 @@ namespace Ui {
 		Tooltip(u8"Od 30 % se hrdina stane bojovníkem, od 60 % mistrem – změní se i animace boje.");
 	}
 
+	// Runs on the game thread. Returns how many script recipe flags were set.
+	static int LearnAllRecipes() {
+		int n = 0;
+		n += SetScriptIntArray("PLAYER_TALENT_ALCHEMY", TRUE);
+		n += SetScriptIntArray("PLAYER_TALENT_SMITH", TRUE);
+		n += SetScriptIntArray("PLAYER_TALENT_RUNES", TRUE);
+		n += SetScriptIntArray("PLAYER_TALENT_TAKEANIMALTROPHY", TRUE);
+		n += SetScriptIntArray("PLAYER_TALENT_FOREIGNLANGUAGE", TRUE);
+		n += SetScriptIntArray("PLAYER_TALENT_WISPDETECTOR", TRUE);
+		player->SetTalentSkill(oCNpcTalent::NPC_TAL_ALCHEMY, 1);
+		player->SetTalentSkill(oCNpcTalent::NPC_TAL_SMITH, 1);
+		player->SetTalentSkill(oCNpcTalent::NPC_TAL_RUNES, 1);
+		player->SetTalentSkill(oCNpcTalent::NPC_TAL_TAKEANIMALTROPHY, 1);
+		player->SetTalentSkill(oCNpcTalent::NPC_TAL_A, 1);
+		player->SetTalentSkill(oCNpcTalent::NPC_TAL_B, 1);
+		return n;
+	}
+
+	static void RaiseTo(int& value, int minimum) {
+		if (value < minimum)
+			value = minimum;
+	}
+
+	// One click: a hero who can do everything.
+	static void MakeLegend() {
+		Enqueue([]() {
+			if (!InGame())
+				return;
+			oCNpc* h = player;
+			RaiseTo(h->attribute[NPC_ATR_HITPOINTSMAX], 1000);
+			RaiseTo(h->attribute[NPC_ATR_MANAMAX], 500);
+			RaiseTo(h->attribute[NPC_ATR_STRENGTH], 200);
+			RaiseTo(h->attribute[NPC_ATR_DEXTERITY], 200);
+			h->attribute[NPC_ATR_HITPOINTS] = h->attribute[NPC_ATR_HITPOINTSMAX];
+			h->attribute[NPC_ATR_MANA] = h->attribute[NPC_ATR_MANAMAX];
+			static const int fight[][2] = {
+				{ oCNpcTalent::NPC_TAL_1H, NPC_HITCHANCE_1H },
+				{ oCNpcTalent::NPC_TAL_2H, NPC_HITCHANCE_2H },
+				{ oCNpcTalent::NPC_TAL_BOW, NPC_HITCHANCE_BOW },
+				{ oCNpcTalent::NPC_TAL_CROSSBOW, NPC_HITCHANCE_CROSSBOW },
+			};
+			for (const auto& f : fight) {
+				h->hitChance[f[1]] = 100;
+				h->SetTalentSkill(f[0], 2);
+			}
+			h->SetTalentSkill(oCNpcTalent::NPC_TAL_MAGE, 6);
+			h->SetTalentSkill(oCNpcTalent::NPC_TAL_SNEAK, 1);
+			h->SetTalentSkill(oCNpcTalent::NPC_TAL_ACROBAT, 1);
+			h->SetTalentSkill(oCNpcTalent::NPC_TAL_PICKLOCK, 1);
+			h->SetTalentSkill(oCNpcTalent::NPC_TALENT_PICKPOCKET, 1);
+			LearnAllRecipes();
+			::GT::Overlay::Toast(u8"Hrdina je teď legenda: plné atributy, mistr boje, 6. kruh a všechny dovednosti");
+		});
+	}
+
 	static void TalentCheckbox(oCNpc* h, const char* label, int talent) {
 		bool on = h->GetTalentSkill(talent) > 0;
 		if (ImGui::Checkbox(label, &on)) {
@@ -195,19 +250,7 @@ namespace Ui {
 			Enqueue([]() {
 				if (!InGame())
 					return;
-				int n = 0;
-				n += SetScriptIntArray("PLAYER_TALENT_ALCHEMY", TRUE);
-				n += SetScriptIntArray("PLAYER_TALENT_SMITH", TRUE);
-				n += SetScriptIntArray("PLAYER_TALENT_RUNES", TRUE);
-				n += SetScriptIntArray("PLAYER_TALENT_TAKEANIMALTROPHY", TRUE);
-				n += SetScriptIntArray("PLAYER_TALENT_FOREIGNLANGUAGE", TRUE);
-				n += SetScriptIntArray("PLAYER_TALENT_WISPDETECTOR", TRUE);
-				player->SetTalentSkill(oCNpcTalent::NPC_TAL_ALCHEMY, 1);
-				player->SetTalentSkill(oCNpcTalent::NPC_TAL_SMITH, 1);
-				player->SetTalentSkill(oCNpcTalent::NPC_TAL_RUNES, 1);
-				player->SetTalentSkill(oCNpcTalent::NPC_TAL_TAKEANIMALTROPHY, 1);
-				player->SetTalentSkill(oCNpcTalent::NPC_TAL_A, 1);
-				player->SetTalentSkill(oCNpcTalent::NPC_TAL_B, 1);
+				int n = LearnAllRecipes();
 				if (n > 0)
 					::GT::Overlay::Toast(::GT::Text::Format(u8"Naučeno %d receptů a znalostí", n));
 				else
@@ -275,12 +318,17 @@ namespace Ui {
 		}
 		oCNpc* h = player;
 
+		const float headerRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
 		ImGui::PushFont(::GT::Overlay::TitleFont());
 		ImGui::TextColored(kGold, "%s", NpcName(h).c_str());
 		ImGui::PopFont();
 		ImGui::SameLine();
 		ImGui::AlignTextToFramePadding();
 		ImGui::TextDisabled(u8"úroveň %d · %s", h->level, GuildName(h->guild).c_str());
+		ImGui::SameLine(headerRight - Em(10.5f));
+		if (SmallButtonColored(u8"★ Udělat legendu", kGold))
+			MakeLegend();
+		Tooltip(u8"Jedním klikem: 1000 života, 500 many, síla a obratnost 200, všechny zbraně na 100 % (mistr), 6. kruh magie, všechny dovednosti a recepty.");
 
 		if (ImGui::BeginTable("##hero", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX)) {
 			ImGui::TableNextColumn();
