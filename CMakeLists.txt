@@ -39,6 +39,12 @@ target_compile_definitions(${CMAKE_PROJECT_NAME}
 		_CRT_SECURE_NO_WARNINGS
 )
 
+if (MSVC)
+	# /EHa: C++ destructors also run when a structured exception (e.g. an
+	# access violation inside the engine) is caught by the trainer's guards
+	target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE /EHa)
+endif()
+
 target_add_versioninfo(${CMAKE_PROJECT_NAME}
 	VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}.${PROJECT_VERSION_TWEAK}"
 	COMPANY_NAME "Gothic Trainer"

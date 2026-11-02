@@ -2,19 +2,23 @@
 // Disable macro redefinition warning (Gothic API redefines some Windows macros)
 #pragma warning(disable: 4005)
 
-#include <Union/Hook.h>
-#include <ZenGin/zGothicAPI.h>
-
+// Standard headers and ImGui first: Union API defines a function-like macro
+// "clamp" (and "null"), which would break <algorithm> if included later.
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
 #include <cstdio>
+#include <cstring>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "imgui.h"
+
+#include <Union/Hook.h>
+#include <ZenGin/zGothicAPI.h>
 
 #include "Core/Log.h"
 #include "Core/Overlay.h"
@@ -30,7 +34,7 @@ namespace {
 			GT::Log::Init();
 			GT::Settings::Load();
 			GT::Text::SetCodePage((unsigned)GT::Settings::Get().codePage);
-			GT::Log::Write("Plugin loaded from %s", GT::Paths::SystemDir().c_str());
+			GT::Log::Write("Plugin loaded from %s (engine %d)", GT::Paths::SystemDir().c_str(), GetGameVersion());
 		}
 	};
 	PluginStartup g_startup;

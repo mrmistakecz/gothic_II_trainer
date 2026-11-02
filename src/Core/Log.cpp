@@ -6,14 +6,20 @@
 
 namespace GT { namespace Log {
 
-	static std::string g_path;
+	// Function-local storage: the log may be used during static initialization
+	// of another translation unit (plugin startup), before globals here exist.
+	static std::string& Storage() {
+		static std::string path;
+		return path;
+	}
+
 	static bool g_ready = false;
 
 	void Init() {
 		if (g_ready)
 			return;
-		g_path = Paths::SystemDir() + "\\GothicTrainer.log";
-		FILE* f = fopen(g_path.c_str(), "w");
+		Storage() = Paths::SystemDir() + "\\GothicTrainer.log";
+		FILE* f = fopen(Storage().c_str(), "w");
 		if (f) {
 			fputs("Gothic Trainer " TRAINER_VERSION "\n", f);
 			fclose(f);
@@ -32,7 +38,7 @@ namespace GT { namespace Log {
 
 		SYSTEMTIME t;
 		GetLocalTime(&t);
-		FILE* f = fopen(g_path.c_str(), "a");
+		FILE* f = fopen(Storage().c_str(), "a");
 		if (f) {
 			fprintf(f, "[%02d:%02d:%02d.%03d] %s\n", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, buf);
 			fclose(f);
@@ -40,7 +46,7 @@ namespace GT { namespace Log {
 	}
 
 	const std::string& Path() {
-		return g_path;
+		return Storage();
 	}
 
 }}

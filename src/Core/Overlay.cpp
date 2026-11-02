@@ -310,11 +310,11 @@ namespace GT { namespace Overlay {
 		cfg.OversampleV = 1;
 		cfg.PixelSnapH = true;
 
-		ImFont* main = TryAddFont(dir + "\\segoeui.ttf", px, &cfg, textRanges);
-		if (!main) main = TryAddFont(dir + "\\tahoma.ttf", px, &cfg, textRanges);
-		if (!main) main = TryAddFont(dir + "\\arial.ttf", px, &cfg, textRanges);
+		ImFont* mainFont = TryAddFont(dir + "\\segoeui.ttf", px, &cfg, textRanges);
+		if (!mainFont) mainFont = TryAddFont(dir + "\\tahoma.ttf", px, &cfg, textRanges);
+		if (!mainFont) mainFont = TryAddFont(dir + "\\arial.ttf", px, &cfg, textRanges);
 
-		if (main) {
+		if (mainFont) {
 			ImFontConfig merge;
 			merge.MergeMode = true;
 			merge.PixelSnapH = true;
@@ -326,16 +326,16 @@ namespace GT { namespace Overlay {
 			Log::Write("No system TTF font found, using the built-in font (no diacritics)");
 			ImFontConfig def;
 			def.SizePixels = px;
-			main = io.Fonts->AddFontDefault(&def);
+			mainFont = io.Fonts->AddFontDefault(&def);
 		}
 
 		g_titleFont = TryAddFont(dir + "\\seguisb.ttf", px * 1.3f, &cfg, textRanges);
 		if (!g_titleFont)
 			g_titleFont = TryAddFont(dir + "\\segoeuib.ttf", px * 1.3f, &cfg, textRanges);
 		if (!g_titleFont)
-			g_titleFont = main;
+			g_titleFont = mainFont;
 
-		io.FontDefault = main;
+		io.FontDefault = mainFont;
 		io.Fonts->Build();
 		ApplyStyle(px);
 		Log::Write("Fonts built: %.0f px", px);
