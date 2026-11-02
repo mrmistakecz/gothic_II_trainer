@@ -1,0 +1,9 @@
+[submodule "dependencies/union/union-api"]
+	path = dependencies/union/union-api
+	url = https://github.com/gothicuef/union-api.git
+[submodule "dependencies/union/gothic-api"]
+	path = dependencies/union/gothic-api
+	url = https://github.com/gothicuef/gothic-api.git
+[submodule "dependencies/imgui/imgui"]
+	path = dependencies/imgui/imgui
+	url = https://github.com/ocornut/imgui.git

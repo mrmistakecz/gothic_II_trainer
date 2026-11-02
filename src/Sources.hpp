@@ -1,0 +1,12 @@
+// Engine-specific parts of the trainer. Included once per supported engine
+// inside its namespace (see Plugin.cpp). Order matters.
+#include "Game/State.hpp"
+#include "Game/Database.hpp"
+#include "Ui/Widgets.hpp"
+#include "Ui/TabHero.hpp"
+#include "Ui/TabItems.hpp"
+#include "Ui/TabWorld.hpp"
+#include "Ui/TabConsole.hpp"
+#include "Ui/TabSettings.hpp"
+#include "Ui/MainWindow.hpp"
+#include "Game/Hooks.hpp"

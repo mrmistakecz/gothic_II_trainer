@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSVC (x86)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Configure
+        run: cmake --preset G2A-Release
+
+      - name: Build
+        run: cmake --build --preset G2A-Release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $dll = "out/build/G2A-Release/GothicTrainer.dll"
+          if (!(Test-Path $dll)) { throw "GothicTrainer.dll not found" }
+          New-Item -ItemType Directory -Force -Path package/System/Autorun | Out-Null
+          Copy-Item $dll package/System/Autorun/
+          Copy-Item README.md package/NAVOD.md
+          Compress-Archive -Path package/* -DestinationPath GothicTrainer.zip -Force
+          Get-Item $dll | Select-Object Name, Length
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GothicTrainer
+          path: package/
+
+      - name: Publish "latest" release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Gothic Trainer (nejnovější build)
+          prerelease: true
+          make_latest: false
+          body: |
+            Automaticky sestaveno z commitu ${{ github.sha }}.
+            Stáhni GothicTrainer.zip a rozbal ho do složky hry Gothic II (vznikne System/Autorun/GothicTrainer.dll).
+          files: |
+            GothicTrainer.zip
+            out/build/G2A-Release/GothicTrainer.dll

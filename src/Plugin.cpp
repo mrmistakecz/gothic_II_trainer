@@ -1,0 +1,46 @@
+// Gothic Trainer – Union plugin for Gothic II: Night of the Raven.
+// Disable macro redefinition warning (Gothic API redefines some Windows macros)
+#pragma warning(disable: 4005)
+
+#include <Union/Hook.h>
+#include <ZenGin/zGothicAPI.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cfloat>
+#include <cstdio>
+#include <functional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "imgui.h"
+
+#include "Core/Log.h"
+#include "Core/Overlay.h"
+#include "Core/Paths.h"
+#include "Core/Seh.h"
+#include "Core/Settings.h"
+#include "Core/Text.h"
+
+// Runs when Union loads the DLL (before the game starts).
+namespace {
+	struct PluginStartup {
+		PluginStartup() {
+			GT::Log::Init();
+			GT::Settings::Load();
+			GT::Text::SetCodePage((unsigned)GT::Settings::Get().codePage);
+			GT::Log::Write("Plugin loaded from %s", GT::Paths::SystemDir().c_str());
+		}
+	};
+	PluginStartup g_startup;
+}
+
+#ifdef __G2A
+#define GOTHIC_NAMESPACE Gothic_II_Addon
+#define ENGINE Engine_G2A
+HOOKSPACE(Gothic_II_Addon, GetGameVersion() == ENGINE);
+#include "Sources.hpp"
+#endif
+
+HOOKSPACE(Global, true);

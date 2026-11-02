@@ -1,0 +1,7 @@
+/out/
+/build/
+/package/
+/.vs/
+/.vscode/
+/.idea/
+*.zip

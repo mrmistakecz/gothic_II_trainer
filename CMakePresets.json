@@ -1,0 +1,39 @@
+{
+	"version": 3,
+	"configurePresets": [
+		{
+			"name": "windows",
+			"hidden": true,
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/out/build/${presetName}",
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Windows"
+			},
+			"cacheVariables": {
+				"CMAKE_C_COMPILER": "cl.exe",
+				"CMAKE_CXX_COMPILER": "cl.exe"
+			}
+		},
+		{
+			"name": "x86",
+			"hidden": true,
+			"architecture": {
+				"value": "x86",
+				"strategy": "external"
+			}
+		},
+		{
+			"name": "g2a",
+			"hidden": true,
+			"cacheVariables": { "GOTHIC_API_G2A": true }
+		},
+		{ "name": "G2A-Release", "inherits": [ "windows", "x86", "g2a" ], "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+		{ "name": "G2A-Debug", "inherits": [ "windows", "x86", "g2a" ], "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } }
+	],
+	"buildPresets": [
+		{ "name": "G2A-Release", "configurePreset": "G2A-Release" },
+		{ "name": "G2A-Debug", "configurePreset": "G2A-Debug" }
+	]
+}
