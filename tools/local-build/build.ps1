@@ -2,8 +2,8 @@
 #
 # Spouští se přes Sestavit_trainer.bat. Při prvním spuštění nainstaluje
 # Microsoft Visual Studio Build Tools (překladač C++ od Microsoftu, zdarma).
-# Potom hlídá soubor src.zip: kdykoli se změní, trainer se znovu sestaví
-# a zkopíruje do hry (system\Autorun\GothicTrainer.dll).
+# Potom hlídá soubor src.zip: kdykoli se změní, trainer i minimapa se znovu
+# sestaví a zkopírují do hry (system\Autorun\GothicTrainer.dll a GothicQuestNav.dll).
 # Okno nech otevřené, dokud ladíme. Zavřít ho můžeš kdykoli.
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +22,9 @@ $LogFile    = Join-Path $Root 'build.log'
 $StatusFile = Join-Path $Root 'status.txt'
 $BuiltDll   = Join-Path $BuildDir 'GothicTrainer.dll'
 $TargetDll  = Join-Path $Autorun 'GothicTrainer.dll'
+$BuiltNav   = Join-Path $BuildDir 'GothicQuestNav.dll'
+$TargetNav  = Join-Path $Autorun 'GothicQuestNav.dll'
+$NavBackup  = Join-Path $GameDir 'GothicQuestNav\backups\pred-sestavenim'
 
 $script:BuildId = '-'
 
@@ -168,22 +171,39 @@ function Invoke-Build {
 	}
 
 	Write-Log '--- build ---'
-	$code = Invoke-Tool 'cmake.exe' @('--build', $BuildDir)
+	$code = Invoke-Tool 'cmake.exe' @('--build', $BuildDir, '--target', 'GothicTrainer', 'GothicQuestNav')
 	if ($code -ne 0) { throw 'Kompilace selhala.' }
 	if (-not (Test-Path $BuiltDll)) { throw 'Kompilace proběhla, ale GothicTrainer.dll chybí.' }
+	if (-not (Test-Path $BuiltNav)) { throw 'Kompilace proběhla, ale GothicQuestNav.dll chybí.' }
 	Write-Log '--- build OK ---'
 }
 
-function Install-Dll {
-	if (-not (Test-Path $BuiltDll)) { return $false }
-	if (-not (Test-Path $Autorun)) { New-Item -ItemType Directory -Force -Path $Autorun | Out-Null }
+function Copy-Dll([string]$from, [string]$to) {
+	if (-not (Test-Path $from)) { return $true }
+	if ((Test-Path $to) -and ((Get-FileHash $from).Hash -eq (Get-FileHash $to).Hash)) { return $true }
 	try {
-		Copy-Item -Path $BuiltDll -Destination $TargetDll -Force
+		Copy-Item -Path $from -Destination $to -Force
 		return $true
 	}
 	catch {
 		return $false
 	}
+}
+
+function Install-Dll {
+	if (-not (Test-Path $BuiltDll)) { return $false }
+	if (-not (Test-Path $Autorun)) { New-Item -ItemType Directory -Force -Path $Autorun | Out-Null }
+	# předchozí minimapa (třeba z jejího vlastního instalátoru) zůstane v záloze
+	if ((Test-Path $BuiltNav) -and (Test-Path $TargetNav) -and ((Get-FileHash $BuiltNav).Hash -ne (Get-FileHash $TargetNav).Hash)) {
+		try {
+			New-Item -ItemType Directory -Force -Path $NavBackup | Out-Null
+			Copy-Item -Path $TargetNav -Destination (Join-Path $NavBackup 'GothicQuestNav.dll') -Force
+		}
+		catch { }
+	}
+	$trainer = Copy-Dll $BuiltDll $TargetDll
+	$minimap = Copy-Dll $BuiltNav $TargetNav
+	return ($trainer -and $minimap)
 }
 
 # ---------------------------------------------------------------- main
@@ -229,13 +249,13 @@ while ($true) {
 					Invoke-Build
 					if (Install-Dll) {
 						$pendingInstall = $false
-						Set-Status 'OK' $TargetDll
-						Say 'Hotovo! Trainer je ve hře – spusť Gothic a zmáčkni F10.' Green
+						Set-Status 'OK' ($TargetDll + ';' + $TargetNav)
+						Say 'Hotovo! Trainer i minimapa jsou ve hře – spusť Gothic, F10 trainer, M mapa.' Green
 					}
 					else {
 						$pendingInstall = $true
 						Set-Status 'WAITING_GAME' 'Hra běží, DLL nainstaluji po jejím zavření.'
-						Say 'Sestaveno, ale hra běží. Až ji zavřeš, trainer se nainstaluje sám.' Yellow
+						Say 'Sestaveno, ale hra běží. Až ji zavřeš, trainer i minimapa se nainstalují samy.' Yellow
 					}
 				}
 				catch {
@@ -246,8 +266,8 @@ while ($true) {
 		}
 		if ($pendingInstall -and (Install-Dll)) {
 			$pendingInstall = $false
-			Set-Status 'OK' $TargetDll
-			Say 'Trainer nainstalován do hry.' Green
+			Set-Status 'OK' ($TargetDll + ';' + $TargetNav)
+			Say 'Trainer i minimapa nainstalovány do hry.' Green
 		}
 	}
 	catch {

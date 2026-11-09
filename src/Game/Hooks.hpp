@@ -7,6 +7,8 @@ namespace Trainer {
 	// ------------------------------------------------------------------ input filter
 
 	static int g_inputBypass = 0;
+	static ::GT::Overlay::PlatformInput g_mouseSample;
+	static bool g_mouseSampleReady = false;
 
 	struct InputBypass {
 		InputBypass() { ++g_inputBypass; }
@@ -23,14 +25,97 @@ namespace Trainer {
 		(*static_cast<Action*>(ctx))();
 	}
 
+	// A savegame may reuse the same addresses for the hero, world and parser.
+	// Invalidate explicitly at load entry, before any object is destroyed.
+	static void ResetSession() {
+		++g_session;
+		g_actions.clear();
+		g_items.ready = g_items.building = false;
+		g_items.items.clear();
+		g_items.goldIndex = -1;
+		g_npcDb.ready = g_npcDb.building = false;
+		g_npcDb.list.clear();
+		g_waypoints.ready = false;
+		g_waypoints.world = nullptr;
+		g_waypoints.list.clear();
+		g_positions.loaded = false;
+		g_transitions.ready = g_transitions.building = false;
+		g_transitions.world = nullptr;
+		g_transitions.list.clear();
+		g_teleportBack.clear();
+		ForgetShrines();
+		g_questDb.building = false;        // the scripts stay, only queued work is gone
+		g_diary.ready = g_diary.pending = false;
+		g_diary.topics.clear();
+		g_diary.byRaw.clear();
+		g_diary.nextRefresh = 0.0;
+		g_questLive = QuestLiveState();
+		g_questNext = QuestDetailNext();
+		g_questBoard = QuestBoard();
+		g_questChests = QuestChests();
+		g_merchants = MerchantBoard();
+		ReleaseMaps();
+		g_traderStock.clear();
+		g_questAuto = QuestAutoState();
+		g_pendingTalk = PendingTalk();
+		g_state.lastPlayer = nullptr;
+		g_state.lastWorld = nullptr;
+		g_state.fastRunApplied = false;
+		g_state.frozenCaptured = false;
+		g_state.weatherSaved = false;      // the sky of the old world is gone
+		g_state.weatherSky = nullptr;
+		Ui::g_itemsUi.lastDbSize = (size_t)-1;
+		Ui::g_itemsUi.filtered.clear();
+		Ui::g_itemsUi.selected = -1;
+		Ui::g_npcsUi.lastSize = (size_t)-1;
+		Ui::g_npcsUi.filtered.clear();
+		Ui::g_npcsUi.selected = -1;
+		Ui::ResetTeleportUi();
+		Ui::g_scriptsUi.ready = false;
+		Ui::g_scriptsUi.funcSelected = -1;
+		Ui::g_arrayCursor.clear();
+	}
+
+	struct WorldChangeGuard {
+		WorldChangeGuard() {
+			if (g_loadingDepth++ == 0) {
+				ResetSession();
+				::GT::Overlay::SetVisible(false);
+			}
+		}
+		~WorldChangeGuard() { --g_loadingDepth; }
+	};
+
+	static void SynchronizeSession() {
+		if (!InGame()) {
+			if (g_state.lastWorld || g_state.lastPlayer)
+				ResetSession();
+			return;
+		}
+		oCWorld* world = GameWorld();
+		if (g_state.lastWorld != world || g_state.lastPlayer != player) {
+			ResetSession();
+			g_state.lastWorld = world;
+			g_state.lastPlayer = player;
+		}
+	}
+
 	static void RunQueuedActions() {
 		if (g_actions.empty())
 			return;
-		std::vector<Action> actions;
+		std::vector<QueuedAction> actions;
 		actions.swap(g_actions);
-		for (Action& action : actions) {
+		for (QueuedAction& queued : actions) {
+			if (queued.session != g_session || !InGame())
+				continue;
 			unsigned long code = 0;
-			if (!::GT::SehInvoke(&RunAction, &action, &code)) {
+			if (!::GT::SehInvoke(&RunAction, &queued.call, &code)) {
+				g_items.building = false;
+				g_npcDb.building = false;
+				g_transitions.building = false;
+				g_questDb.building = false;
+				g_diary.pending = false;
+				g_questLive.pending = false;
 				::GT::Log::Write("Exception 0x%08lX in a trainer action", code);
 				::GT::Overlay::Toast(u8"Akce selhala (podrobnosti v GothicTrainer.log)");
 			}
@@ -68,6 +153,9 @@ namespace Trainer {
 			g_state.frozenCaptured = false;
 		}
 
+		ApplyWeather();
+		g_state.frameCounter++;
+
 		if (hero->IsDead())
 			return;
 
@@ -75,6 +163,8 @@ namespace Trainer {
 			hero->attribute[NPC_ATR_HITPOINTS] = hero->attribute[NPC_ATR_HITPOINTSMAX];
 		if (g_state.infiniteMana)
 			hero->attribute[NPC_ATR_MANA] = hero->attribute[NPC_ATR_MANAMAX];
+		if (g_state.infiniteAmmo && g_state.frameCounter % 10 == 0)
+			RefillAmmo(hero);
 
 		if (g_state.fastRun != g_state.fastRunApplied) {
 			zSTRING mds("HUMANS_SPRINT.MDS");
@@ -86,8 +176,22 @@ namespace Trainer {
 		}
 	}
 
+	static void QuestAutoThunk(void*) {
+		ProcessPendingTalk();
+		ProcessQuestAuto();
+	}
+
 	static void GameFrameThunk(void*) {
+		SynchronizeSession();
 		RunQueuedActions();
+		if (g_questAuto.active || g_pendingTalk.npc) {
+			unsigned long code = 0;
+			if (!::GT::SehInvoke(&QuestAutoThunk, nullptr, &code)) {
+				g_questAuto = QuestAutoState();
+				g_pendingTalk = PendingTalk();
+				::GT::Log::Write("Exception 0x%08lX while completing a quest dialog", code);
+			}
+		}
 		ApplyPersistentEffects();
 	}
 
@@ -119,7 +223,13 @@ namespace Trainer {
 		if (!zinput)
 			return;
 		InputBypass bypass;
-		if (::GT::Overlay::IsVisible()) {
+		if (::GT::Overlay::CapturesInput()) {
+			if (g_mouseSampleReady) {
+				in = g_mouseSample;
+				g_mouseSample = {};
+				g_mouseSampleReady = false;
+			}
+			else {
 			float x = 0.0f, y = 0.0f, z = 0.0f;
 			zinput->GetMousePos(x, y, z);
 			int flipX = 0, flipY = 0;
@@ -130,6 +240,7 @@ namespace Trainer {
 			in.lmb = zinput->GetMouseButtonPressedLeft() != 0;
 			in.rmb = zinput->GetMouseButtonPressedRight() != 0;
 			in.mmb = zinput->GetMouseButtonPressedMid() != 0;
+			}
 		}
 		int dik = ::GT::Overlay::DikForVk(::GT::Settings::Get().toggleKey);
 		if (dik)
@@ -167,6 +278,50 @@ namespace Trainer {
 } // namespace Trainer
 
 	// ================================================================== hooks
+	void __fastcall Hook_InputEvents(zCInput_Win32* self, void* vtable);
+	auto Ivk_InputEvents = Union::CreateHook(reinterpret_cast<void*>(0x004D5700), &Hook_InputEvents, Union::HookType::Hook_Detours);
+	void __fastcall Hook_InputEvents(zCInput_Win32* self, void* vtable) {
+		Ivk_InputEvents(self, vtable);
+		if (!::GT::Overlay::CapturesInput()) {
+			Trainer::g_mouseSample = {};
+			Trainer::g_mouseSampleReady = false;
+			return;
+		}
+		Trainer::InputBypass bypass;
+		float x = 0, y = 0, z = 0;
+		self->GetMousePos(x, y, z);
+		int flipX = 0, flipY = 0;
+		self->GetMouseFlipXY(flipX, flipY);
+		auto& sample = Trainer::g_mouseSample;
+		sample.mouseDX += flipX ? -x : x;
+		sample.mouseDY += flipY ? -y : y;
+		sample.wheel += z;
+		sample.lmb = self->GetMouseButtonPressedLeft() != 0;
+		sample.rmb = self->GetMouseButtonPressedRight() != 0;
+		sample.mmb = self->GetMouseButtonPressedMid() != 0;
+		Trainer::g_mouseSampleReady = true;
+	}
+
+	void __fastcall Hook_oCGame_LoadGame(oCGame* self, void* vtable, int slot, const zSTRING& name);
+	auto Ivk_oCGame_LoadGame = Union::CreateHook(reinterpret_cast<void*>(0x006C65A0), &Hook_oCGame_LoadGame, Union::HookType::Hook_Detours);
+	void __fastcall Hook_oCGame_LoadGame(oCGame* self, void* vtable, int slot, const zSTRING& name) {
+		Trainer::WorldChangeGuard guard;
+		Ivk_oCGame_LoadGame(self, vtable, slot, name);
+	}
+
+	void __fastcall Hook_oCGame_LoadSavegame(oCGame* self, void* vtable, int slot, int loadGlobals);
+	auto Ivk_oCGame_LoadSavegame = Union::CreateHook(reinterpret_cast<void*>(0x006C67D0), &Hook_oCGame_LoadSavegame, Union::HookType::Hook_Detours);
+	void __fastcall Hook_oCGame_LoadSavegame(oCGame* self, void* vtable, int slot, int loadGlobals) {
+		Trainer::WorldChangeGuard guard;
+		Ivk_oCGame_LoadSavegame(self, vtable, slot, loadGlobals);
+	}
+
+	void __fastcall Hook_oCGame_LoadWorld(oCGame* self, void* vtable, int mode, const zSTRING& name);
+	auto Ivk_oCGame_LoadWorld = Union::CreateHook(reinterpret_cast<void*>(0x006C90B0), &Hook_oCGame_LoadWorld, Union::HookType::Hook_Detours);
+	void __fastcall Hook_oCGame_LoadWorld(oCGame* self, void* vtable, int mode, const zSTRING& name) {
+		Trainer::WorldChangeGuard guard;
+		Ivk_oCGame_LoadWorld(self, vtable, mode, name);
+	}
 
 	// --- presenting a frame: draw the overlay on top of everything
 	void __fastcall Hook_zCRnd_D3D_Vid_Blit(zCRnd_D3D* self, void* vtable, int a0, tagRECT* a1, tagRECT* a2);
@@ -184,10 +339,15 @@ namespace Trainer {
 		Ivk_oCGame_Render(self, vtable);
 	}
 
-	// --- damage: one-hit kill
+	// --- damage: one-hit kill, no fall damage
 	void __fastcall Hook_oCNpc_OnDamage(oCNpc* self, void* vtable, oCNpc::oSDamageDescriptor& desc);
 	auto Ivk_oCNpc_OnDamage = Union::CreateHook(reinterpret_cast<void*>(0x006660E0), &Hook_oCNpc_OnDamage, Union::HookType::Hook_Detours);
 	void __fastcall Hook_oCNpc_OnDamage(oCNpc* self, void* vtable, oCNpc::oSDamageDescriptor& desc) {
+		if (Trainer::g_state.noFallDamage && player && self == player && (desc.enuModeDamage & oEDamageType_Fall)) {
+			if ((desc.enuModeDamage & ~(unsigned long)oEDamageType_Fall) == 0)
+				return;   // a pure fall: nothing happens at all
+			desc.aryDamage[oEDamageIndex_Fall] = 0;
+		}
 		if (Trainer::g_state.oneHitKill && player && self != player && desc.pNpcAttacker == player) {
 			for (int i = 0; i < oEDamageIndex_MAX; i++)
 				if (desc.aryDamage[i] > 0)

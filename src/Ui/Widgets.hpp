@@ -88,6 +88,25 @@ namespace Ui {
 		::GT::Overlay::Toast(text);
 	}
 
+	// Main tabs, so one tab can open another (a quest from the map, a lesson from the search).
+	enum : int {
+		kTabHero = 0, kTabItems, kTabNpcs, kTabQuests, kTabMerchants, kTabMap, kTabTeleports,
+		kTabWorld, kTabScripts, kTabConsole, kTabSettings, kTabSearch
+	};
+
+	static int g_requestTab = -1;
+
+	static void RequestMainTab(int tab) {
+		g_requestTab = tab;
+	}
+
+	static ImGuiTabItemFlags MainTabFlags(int tab) {
+		if (g_requestTab != tab)
+			return ImGuiTabItemFlags_None;
+		g_requestTab = -1;
+		return ImGuiTabItemFlags_SetSelected;
+	}
+
 } // namespace Ui
 } // namespace Trainer
 } // namespace GOTHIC_NAMESPACE

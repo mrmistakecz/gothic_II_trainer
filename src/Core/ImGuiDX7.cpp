@@ -29,7 +29,11 @@ namespace GT { namespace ImGuiDX7 {
 		desc.dwSize = sizeof(desc);
 		desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
 		desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
-		if (managed)
+		D3DDEVICEDESC7 caps = {};
+		const bool software = g_device && SUCCEEDED(g_device->GetCaps(&caps)) && !(caps.dwDevCaps & D3DDEVCAPS_HWRASTERIZATION);
+		if (software)
+			desc.ddsCaps.dwCaps |= DDSCAPS_SYSTEMMEMORY;
+		else if (managed)
 			desc.ddsCaps.dwCaps2 = DDSCAPS2_TEXTUREMANAGE;
 		else
 			desc.ddsCaps.dwCaps |= DDSCAPS_VIDEOMEMORY;
@@ -137,6 +141,7 @@ namespace GT { namespace ImGuiDX7 {
 		g_ddraw = ddraw;
 		ImGuiIO& io = ImGui::GetIO();
 		io.BackendRendererName = "gothic_dx7";
+		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 		return g_device != nullptr && g_ddraw != nullptr;
 	}
 
@@ -297,6 +302,9 @@ namespace GT { namespace ImGuiDX7 {
 	struct SavedState {
 		DWORD render[kNumRenderStates];
 		DWORD stage0[kNumStage0States];
+		bool haveRender[kNumRenderStates];
+		bool haveStage0[kNumStage0States];
+		bool haveStage1ColorOp, haveStage1AlphaOp;
 		DWORD stage1ColorOp, stage1AlphaOp;
 		IDirectDrawSurface7* tex0;
 		IDirectDrawSurface7* tex1;
@@ -306,13 +314,11 @@ namespace GT { namespace ImGuiDX7 {
 
 	static void Save(SavedState& s) {
 		for (int i = 0; i < kNumRenderStates; i++)
-			if (FAILED(g_device->GetRenderState(kRenderStates[i], &s.render[i])))
-				s.render[i] = 0;
+			s.haveRender[i] = SUCCEEDED(g_device->GetRenderState(kRenderStates[i], &s.render[i]));
 		for (int i = 0; i < kNumStage0States; i++)
-			if (FAILED(g_device->GetTextureStageState(0, kStage0States[i], &s.stage0[i])))
-				s.stage0[i] = 0;
-		g_device->GetTextureStageState(1, D3DTSS_COLOROP, &s.stage1ColorOp);
-		g_device->GetTextureStageState(1, D3DTSS_ALPHAOP, &s.stage1AlphaOp);
+			s.haveStage0[i] = SUCCEEDED(g_device->GetTextureStageState(0, kStage0States[i], &s.stage0[i]));
+		s.haveStage1ColorOp = SUCCEEDED(g_device->GetTextureStageState(1, D3DTSS_COLOROP, &s.stage1ColorOp));
+		s.haveStage1AlphaOp = SUCCEEDED(g_device->GetTextureStageState(1, D3DTSS_ALPHAOP, &s.stage1AlphaOp));
 		s.tex0 = nullptr;
 		s.tex1 = nullptr;
 		g_device->GetTexture(0, &s.tex0); // AddRef'd
@@ -322,11 +328,11 @@ namespace GT { namespace ImGuiDX7 {
 
 	static void Restore(SavedState& s) {
 		for (int i = 0; i < kNumRenderStates; i++)
-			g_device->SetRenderState(kRenderStates[i], s.render[i]);
+			if (s.haveRender[i]) g_device->SetRenderState(kRenderStates[i], s.render[i]);
 		for (int i = 0; i < kNumStage0States; i++)
-			g_device->SetTextureStageState(0, kStage0States[i], s.stage0[i]);
-		g_device->SetTextureStageState(1, D3DTSS_COLOROP, s.stage1ColorOp);
-		g_device->SetTextureStageState(1, D3DTSS_ALPHAOP, s.stage1AlphaOp);
+			if (s.haveStage0[i]) g_device->SetTextureStageState(0, kStage0States[i], s.stage0[i]);
+		if (s.haveStage1ColorOp) g_device->SetTextureStageState(1, D3DTSS_COLOROP, s.stage1ColorOp);
+		if (s.haveStage1AlphaOp) g_device->SetTextureStageState(1, D3DTSS_ALPHAOP, s.stage1AlphaOp);
 		g_device->SetTexture(0, s.tex0);
 		g_device->SetTexture(1, s.tex1);
 		if (s.tex0) s.tex0->Release();
@@ -391,7 +397,14 @@ namespace GT { namespace ImGuiDX7 {
 		int offset = 0;
 		while (offset < g_batch.Size) {
 			int count = ImMin(kMaxBatch, g_batch.Size - offset);
-			g_device->DrawPrimitive(D3DPT_TRIANGLELIST, kFVF, (LPVOID)(g_batch.Data + offset), (DWORD)count, 0);
+			HRESULT hr = g_device->DrawPrimitive(D3DPT_TRIANGLELIST, kFVF, (LPVOID)(g_batch.Data + offset), (DWORD)count, 0);
+			if (FAILED(hr)) {
+				static bool reported = false;
+				if (!reported) {
+					Log::Write("Overlay DrawPrimitive failed: 0x%08X (%d vertices)", (unsigned)hr, count);
+					reported = true;
+				}
+			}
 			offset += count;
 		}
 		g_batch.resize(0);
@@ -406,19 +419,26 @@ namespace GT { namespace ImGuiDX7 {
 			return;
 
 		if (g_fontTex && g_fontTex->IsLost() == DDERR_SURFACELOST) {
-			if (SUCCEEDED(g_fontTex->Restore()))
-				Upload(g_fontTex);
+			if (FAILED(g_fontTex->Restore()) || !Upload(g_fontTex))
+				return;
 		}
 
-		SavedState saved;
+		SavedState saved = {};
 		Save(saved);
+		struct RestoreState {
+			SavedState& saved;
+			~RestoreState() { Restore(saved); }
+		} restoreState{ saved };
 
 		HRESULT sceneHr = g_device->BeginScene();
 		const bool ownScene = SUCCEEDED(sceneHr);
 		if (!ownScene && sceneHr != D3DERR_SCENE_IN_SCENE) {
-			Restore(saved);
 			return;
 		}
+		struct EndScene {
+			bool own;
+			~EndScene() { if (own) g_device->EndScene(); }
+		} endScene{ ownScene };
 
 		Setup(width, height);
 
@@ -467,9 +487,6 @@ namespace GT { namespace ImGuiDX7 {
 		}
 		Flush(currentTex);
 
-		if (ownScene)
-			g_device->EndScene();
-		Restore(saved);
 	}
 
 }}

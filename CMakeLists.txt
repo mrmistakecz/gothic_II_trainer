@@ -14,8 +14,12 @@ include(target_add_versioninfo)
 
 project(GothicTrainer
 	DESCRIPTION "Trainer pro Gothic II: Noc Havrana (Union plugin)"
-	VERSION 0.1.0.0
+	VERSION 0.6.0.0
 )
+
+if (NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+	message(FATAL_ERROR "Gothic Trainer requires a Windows x86 compiler (vcvars32.bat).")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,3 +60,27 @@ target_add_versioninfo(${CMAKE_PROJECT_NAME}
 )
 
 add_subdirectory(dependencies)
+
+add_library(GothicQuestNav SHARED navigation/Plugin.cpp src/Core/Paths.cpp src/Core/Text.cpp src/Core/Seh.cpp)
+target_include_directories(GothicQuestNav PRIVATE src)
+target_link_libraries(GothicQuestNav PRIVATE union user32)
+target_compile_options(GothicQuestNav PRIVATE /EHa)
+target_compile_definitions(GothicQuestNav PRIVATE _CRT_SECURE_NO_WARNINGS)
+
+option(GOTHIC_TRAINER_BUILD_TESTS "Build standalone trainer regression tests" OFF)
+if (GOTHIC_TRAINER_BUILD_TESTS)
+	enable_testing()
+	add_executable(TrainerCoreTests
+		tests/CoreTests.cpp tests/TestPaths.cpp tests/RendererSmoke.cpp
+		src/Core/Settings.cpp src/Core/Text.cpp src/Core/Log.cpp
+		src/Core/Overlay.cpp src/Core/ImGuiDX7.cpp src/Core/Seh.cpp)
+	target_include_directories(TrainerCoreTests PRIVATE src dependencies/union/gothic-api)
+	target_compile_definitions(TrainerCoreTests PRIVATE TRAINER_VERSION="${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}" _CRT_SECURE_NO_WARNINGS)
+	target_compile_options(TrainerCoreTests PRIVATE /EHa)
+	target_link_libraries(TrainerCoreTests PRIVATE imgui user32)
+	add_test(NAME TrainerCoreRegression COMMAND TrainerCoreTests)
+	add_test(NAME TrainerDirectX7Smoke COMMAND TrainerCoreTests --renderer-smoke)
+	set_tests_properties(TrainerDirectX7Smoke PROPERTIES SKIP_RETURN_CODE 77)
+	add_executable(QuestMapTests tests/MapTests.cpp)
+	add_test(NAME QuestMapGeometry COMMAND QuestMapTests)
+endif()

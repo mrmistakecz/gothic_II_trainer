@@ -1,15 +1,14 @@
-// Tab "Svět" – time, game speed, teleports, saved positions, target NPC.
+// Tab "Svět" – time, game speed, weather, the area around the hero, crimes,
+// target NPC. Teleports have their own tab (TabTeleports.hpp).
 
 namespace GOTHIC_NAMESPACE {
 namespace Trainer {
 namespace Ui {
 
 	struct WorldUiState {
-		char wpSearch[96] = {};
-		int selectedWp = -1;
-		char posName[64] = {};
 		int hour = 12;
 		int minute = 0;
+		float areaRadius = 1500.0f;   // cm
 	};
 
 	static WorldUiState g_worldUi;
@@ -86,124 +85,48 @@ namespace Ui {
 			ztimer->SetMotionFactor(2.0f);
 	}
 
-	static void TeleportToWaypoint(const WaypointEntry& wp) {
-		std::string raw = wp.raw;
-		std::string name = wp.name;
-		Enqueue([raw, name]() {
-			if (!InGame())
-				return;
-			player->BeamTo(zSTRING(raw.c_str()));
-			::GT::Overlay::Toast(u8"Teleport: " + name);
-		});
-	}
-
-	static void WorldWaypointSection() {
-		ImGui::SeparatorText(u8"Teleport na waypoint");
-		oCWorld* world = GameWorld();
-		if (!g_waypoints.ready || g_waypoints.world != world)
-			BuildWaypointDatabase();
-
-		WorldUiState& s = g_worldUi;
-		ImGui::SetNextItemWidth(-Em(9.0f));
-		ImGui::InputTextWithHint("##wpsearch", u8"Hledat waypoint (např. city, tavern, xardas)…", s.wpSearch, sizeof(s.wpSearch));
+	static void WorldWeatherSection() {
+		ImGui::SeparatorText(u8"Počasí");
+		if (!WeatherAvailable()) {
+			ImGui::TextDisabled(u8"Tady je počasí pevně dané (podzemí nebo vlastní svět módu).");
+			return;
+		}
+		int mode = g_state.weatherMode;
+		ImGui::RadioButton(u8"Podle hry", &mode, 0);
 		ImGui::SameLine();
-		bool canGo = s.selectedWp >= 0 && s.selectedWp < (int)g_waypoints.list.size();
-		if (!canGo)
-			ImGui::BeginDisabled();
-		if (ImGui::Button(u8"Teleportovat", ImVec2(-FLT_MIN, 0.0f)) && canGo)
-			TeleportToWaypoint(g_waypoints.list[s.selectedWp]);
-		if (!canGo)
-			ImGui::EndDisabled();
-
-		std::string needle = ::GT::Text::Fold(s.wpSearch);
-		static std::vector<int> filtered;
-		filtered.clear();
-		for (int i = 0; i < (int)g_waypoints.list.size(); i++)
-			if (::GT::Text::Contains(g_waypoints.list[i].folded, needle))
-				filtered.push_back(i);
-
-		if (ImGui::BeginChild("##wplist", ImVec2(0.0f, Em(11.0f)), ImGuiChildFlags_Borders)) {
-			ImGuiListClipper clipper;
-			clipper.Begin((int)filtered.size());
-			while (clipper.Step()) {
-				for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {
-					int i = filtered[row];
-					const WaypointEntry& wp = g_waypoints.list[i];
-					ImGui::PushID(i);
-					if (ImGui::Selectable(wp.name.c_str(), s.selectedWp == i, ImGuiSelectableFlags_AllowDoubleClick)) {
-						s.selectedWp = i;
-						if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-							TeleportToWaypoint(wp);
-					}
-					ImGui::PopID();
-				}
-			}
-		}
-		ImGui::EndChild();
-		ImGui::TextDisabled(u8"%d waypointů v tomto světě · dvojklik teleportuje", (int)g_waypoints.list.size());
-	}
-
-	static void TeleportToPosition(float x, float y, float z, const std::string& name) {
-		Enqueue([x, y, z, name]() {
-			if (!InGame())
-				return;
-			zVEC3 pos;
-			pos.n[0] = x;
-			pos.n[1] = y;
-			pos.n[2] = z;
-			player->ResetPos(pos);
-			::GT::Overlay::Toast(u8"Teleport: " + name);
-		});
-	}
-
-	static void WorldPositionsSection() {
-		ImGui::SeparatorText(u8"Uložené pozice");
-		EnsurePositionsLoaded();
-		WorldUiState& s = g_worldUi;
-
-		zVEC3 here = player->GetPositionWorld();
-		ImGui::TextDisabled("X %.0f   Y %.0f   Z %.0f", here.n[0], here.n[1], here.n[2]);
-
-		ImGui::SetNextItemWidth(Em(14.0f));
-		ImGui::InputTextWithHint("##posname", u8"Název pozice", s.posName, sizeof(s.posName));
+		ImGui::RadioButton(u8"Déšť", &mode, 1);
 		ImGui::SameLine();
-		if (ImGui::Button(u8"Uložit tuto pozici")) {
-			::GT::SavedPosition p;
-			p.name = s.posName[0] ? std::string(s.posName) : ::GT::Text::Format(u8"Pozice %d", (int)g_positions.list.size() + 1);
-			p.x = here.n[0];
-			p.y = here.n[1];
-			p.z = here.n[2];
-			g_positions.list.push_back(p);
-			SavePositionsNow();
-			s.posName[0] = 0;
-			Toast(u8"Pozice uložena: " + p.name);
+		ImGui::RadioButton(u8"Jasno", &mode, 2);
+		if (mode != g_state.weatherMode) {
+			g_state.weatherMode = mode;
+			Toast(mode == 0 ? u8"Počasí řídí hra" : (mode == 1 ? u8"Začíná pršet" : u8"Obloha se vyjasní"));
 		}
+		Tooltip(u8"Déšť a jasno vydrží, dokud nevybereš Podle hry. Změna se projeví během několika vteřin.");
+	}
 
-		int removeIndex = -1;
-		if (ImGui::BeginTable("##positions", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-			for (int i = 0; i < (int)g_positions.list.size(); i++) {
-				const ::GT::SavedPosition& p = g_positions.list[i];
-				ImGui::PushID(i);
-				ImGui::TableNextRow();
-				ImGui::TableNextColumn();
-				ImGui::AlignTextToFramePadding();
-				ImGui::TextUnformatted(p.name.c_str());
-				ImGui::TableNextColumn();
-				if (ImGui::SmallButton(u8"Teleport"))
-					TeleportToPosition(p.x, p.y, p.z, p.name);
-				ImGui::TableNextColumn();
-				if (ImGui::SmallButton(u8"Smazat"))
-					removeIndex = i;
-				ImGui::PopID();
-			}
-			ImGui::EndTable();
-		}
-		if (removeIndex >= 0) {
-			g_positions.list.erase(g_positions.list.begin() + removeIndex);
-			SavePositionsNow();
-		}
-		if (g_positions.list.empty())
-			ImGui::TextDisabled(u8"Zatím žádné. Pozice se ukládají zvlášť pro každý svět.");
+	static void WorldAreaSection() {
+		ImGui::SeparatorText(u8"Okolí hrdiny");
+		WorldUiState& s = g_worldUi;
+		ImGui::SetNextItemWidth(Em(12.0f));
+		float meters = s.areaRadius / 100.0f;
+		if (ImGui::SliderFloat(u8"##arearadius", &meters, 3.0f, 60.0f, u8"okruh %.0f m"))
+			s.areaRadius = meters * 100.0f;
+
+		if (ImGui::Button(u8"Odemknout truhly a dveře"))
+			UnlockNearby(s.areaRadius);
+		Tooltip(u8"Odemkne všechny zamčené truhly a dveře v okruhu – i ty, ke kterým je potřeba klíč.");
+		ImGui::SameLine();
+		if (ImGui::Button(u8"Sebrat předměty ze země"))
+			CollectItemsNearby(s.areaRadius);
+		Tooltip(u8"Všechno, co v okruhu leží na zemi, přesune do inventáře. Pozor: sebrané cizí věci hra nepovažuje za krádež.");
+
+		if (ImGui::Button(u8"Uklidnit všechny v okolí"))
+			CalmNearby(s.areaRadius);
+		Tooltip(u8"Nastaví všem postavám v okruhu neutrální postoj k hrdinovi (jako tlačítko Uklidnit u cíle).");
+		ImGui::SameLine();
+		if (ImGui::Button(u8"Odpustit všechny zločiny"))
+			ForgiveAllCrimes();
+		Tooltip(u8"Smaže hledání a pokuty za vraždy, krádeže a napadení ve městě, klášteře, na farmách, na hradě i v táboře banditů (herní skript B_GrantAbsolution).");
 	}
 
 	static void WorldTargetSection() {
@@ -250,14 +173,15 @@ namespace Ui {
 			NotInGame();
 			return;
 		}
+		ImGui::TextDisabled(u8"Teleporty, waypointy, uložené pozice a cesty do jiných světů jsou v záložce Teleporty.");
 		if (ImGui::BeginTable("##world", 2, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX)) {
-			ImGui::TableNextColumn();
-			WorldWaypointSection();
-			WorldPositionsSection();
-
 			ImGui::TableNextColumn();
 			WorldTimeSection();
 			WorldSpeedSection();
+			WorldWeatherSection();
+
+			ImGui::TableNextColumn();
+			WorldAreaSection();
 			WorldTargetSection();
 			ImGui::EndTable();
 		}

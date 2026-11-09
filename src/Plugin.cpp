@@ -7,15 +7,20 @@
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
+#include <climits>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "imgui.h"
+#include "../navigation/MapData.h"
 
 #include <Union/Hook.h>
 #include <ZenGin/zGothicAPI.h>
@@ -26,6 +31,7 @@
 #include "Core/Seh.h"
 #include "Core/Settings.h"
 #include "Core/Text.h"
+#include "Core/QuestScan.h"
 
 // Runs when Union loads the DLL (before the game starts).
 namespace {

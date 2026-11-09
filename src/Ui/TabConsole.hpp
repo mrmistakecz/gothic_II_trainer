@@ -41,6 +41,10 @@ namespace Ui {
 	};
 
 	static void TabConsole() {
+		if (!InGame()) {
+			NotInGame();
+			return;
+		}
 		ConsoleUiState& s = g_consoleUi;
 		ImGui::TextWrapped(u8"Příkazy jsou stejné jako v Marvin módu (F2), jen nemusíš nic zapínat. Výsledek uvidíš i ve hře.");
 		ImGui::Spacing();
