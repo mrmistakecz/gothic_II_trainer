@@ -242,7 +242,7 @@ namespace Ui {
 			std::string name = fn->name;
 			int a0 = s.funcArgs[0], a1 = s.funcArgs[1], a2 = s.funcArgs[2], a3 = s.funcArgs[3];
 			Enqueue([index, params, name, a0, a1, a2, a3]() {
-				if (!parser)
+				if (!InGame() || !parser)
 					return;
 				switch (params) {
 					case 0: parser->CallFunc(index); break;
@@ -257,7 +257,7 @@ namespace Ui {
 	}
 
 	static void TabScripts() {
-		if (!parser) {
+		if (!InGame() || !parser) {
 			NotInGame();
 			return;
 		}

@@ -7,9 +7,10 @@ namespace Trainer {
 	struct NpcEntry {
 		int index = -1;
 		std::string code;     // instance name, e.g. VLK_439_VATRAS
-		std::string label;    // readable label
+		std::string label;    // readable label (name from the scripts when known)
 		std::string folded;
 		bool person = false;  // human NPC (has a number in its name)
+		bool scriptName = false; // label comes from the game's own scripts
 	};
 
 	struct NpcDatabase {
@@ -80,6 +81,7 @@ namespace Trainer {
 	}
 
 	static void BuildNpcDatabase() {
+		struct FinishBuild { ~FinishBuild() { g_npcDb.building = false; } } finish;
 		g_npcDb.list.clear();
 		g_npcDb.ready = false;
 		if (!parser) {
@@ -87,7 +89,9 @@ namespace Trainer {
 			return;
 		}
 		const int classIndex = parser->GetIndex(zSTRING("C_NPC"));
+		const int nameMember = parser->GetIndex(zSTRING("C_NPC.NAME"));
 		const int symbols = parser->symtab.table.GetNumInList();
+		int named = 0;
 		for (int i = 0; classIndex >= 0 && i < symbols; i++) {
 			zCPar_Symbol* sym = parser->GetSymbol(i);
 			if (!sym || sym->type != zPAR_TYPE_INSTANCE || sym->single_intdata <= 0)
@@ -98,18 +102,27 @@ namespace Trainer {
 			e.index = i;
 			e.code = sym->name.ToChar();
 			e.person = LooksLikePerson(e.code);
-			e.label = NpcLabel(e.code, e.person);
+			// the name the scripts give the NPC (Czech with Czech scripts) ...
+			e.label = ScriptInstanceString(i, nameMember);
+			e.scriptName = !e.label.empty();
+			// ... or a name made from the instance code
+			if (e.label.empty())
+				e.label = NpcLabel(e.code, e.person);
+			else
+				named++;
 			e.folded = ::GT::Text::Fold(e.label + " " + e.code);
 			g_npcDb.list.push_back(std::move(e));
 		}
 		std::sort(g_npcDb.list.begin(), g_npcDb.list.end(), [](const NpcEntry& a, const NpcEntry& b) {
 			if (a.person != b.person)
 				return !a.person; // creatures first
-			return a.label < b.label;
+			if (a.folded != b.folded)
+				return a.folded < b.folded;
+			return a.code < b.code;
 		});
 		g_npcDb.ready = true;
 		g_npcDb.building = false;
-		::GT::Log::Write("NPC database: %d instances", (int)g_npcDb.list.size());
+		::GT::Log::Write("NPC database: %d instances, %d named by the scripts", (int)g_npcDb.list.size(), named);
 	}
 
 	// ------------------------------------------------------------------ world NPCs

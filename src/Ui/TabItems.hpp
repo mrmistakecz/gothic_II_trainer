@@ -15,9 +15,22 @@ namespace Ui {
 		size_t lastDbSize = 0;
 		std::vector<int> filtered;
 		int selected = -1;
+		int mode = 0;              // 0 = catalogue, 1 = hero inventory
 	};
 
 	static ItemsUiState g_itemsUi;
+
+	struct InventoryRow {
+		int instance = -1;
+		std::string name;
+		std::string code;
+		std::string folded;
+		int amount = 0;
+		int category = CAT_OTHER;
+		int value = 0;
+		bool equipped = false;
+		bool mission = false;
+	};
 
 	static void GiveItem(int instance, int amount, const std::string& name) {
 		Enqueue([instance, amount, name]() {
@@ -103,6 +116,113 @@ namespace Ui {
 		}
 	}
 
+	// What the hero carries right now, with quick "more of this" buttons.
+	static void HeroInventoryView() {
+		ItemsUiState& s = g_itemsUi;
+		std::vector<InventoryRow> rows;
+		long long total = 0;
+		for (auto* node = player->inventory2.inventory.next; node; node = node->next) {
+			oCItem* it = node->data;
+			if (!it)
+				continue;
+			InventoryRow r;
+			r.instance = it->GetInstance();
+			r.code = FromZ(it->GetInstanceName());
+			r.name = FromZ(it->name);
+			if (r.name.empty())
+				r.name = r.code;
+			r.amount = it->amount;
+			r.category = ClassifyItem(it->mainflag, it->flags);
+			r.value = it->value;
+			r.equipped = (it->flags & ITM_FLAG_ACTIVE) != 0;
+			r.mission = (it->flags & ITM_FLAG_MI) != 0;
+			r.folded = ::GT::Text::Fold(r.name) + " " + ::GT::Text::Fold(r.code);
+			total += (long long)r.value * (long long)(r.amount > 0 ? r.amount : 1);
+			rows.push_back(std::move(r));
+		}
+		std::sort(rows.begin(), rows.end(), [](const InventoryRow& a, const InventoryRow& b) {
+			return a.category != b.category ? a.category < b.category : a.folded < b.folded;
+		});
+
+		ImGui::SetNextItemWidth(Em(16.0f));
+		ImGui::InputTextWithHint("##invsearch", u8"Hledat v inventáři…", s.search, sizeof(s.search));
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(Em(11.0f));
+		if (ImGui::BeginCombo("##invcat", CategoryName(s.category))) {
+			for (int c = 0; c < CAT_COUNT; c++)
+				if (ImGui::Selectable(CategoryName(c), s.category == c))
+					s.category = c;
+			ImGui::EndCombo();
+		}
+		const std::string needle = ::GT::Text::Fold(s.search);
+		std::vector<int> visible;
+		for (int i = 0; i < (int)rows.size(); i++) {
+			if (s.category != CAT_ALL && rows[i].category != s.category)
+				continue;
+			if (!::GT::Text::Contains(rows[i].folded, needle))
+				continue;
+			visible.push_back(i);
+		}
+		ImGui::TextDisabled(u8"%d druhů předmětů · celková hodnota %s · zlatě = nasazeno", (int)rows.size(), ::GT::Text::Thousands(total).c_str());
+
+		const ImGuiTableFlags flags = ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter
+			| ImGuiTableFlags_BordersV | ImGuiTableFlags_SizingStretchProp;
+		if (ImGui::BeginTable("##inventory", 5, flags, ImVec2(0.0f, ImGui::GetContentRegionAvail().y))) {
+			ImGui::TableSetupScrollFreeze(0, 1);
+			ImGui::TableSetupColumn(u8"Název", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+			ImGui::TableSetupColumn(u8"Druh", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+			ImGui::TableSetupColumn(u8"Kusů", ImGuiTableColumnFlags_WidthFixed, Em(4.5f));
+			ImGui::TableSetupColumn(u8"Cena", ImGuiTableColumnFlags_WidthFixed, Em(4.5f));
+			ImGui::TableSetupColumn(u8"Přidat", ImGuiTableColumnFlags_WidthFixed, Em(7.5f));
+			ImGui::TableHeadersRow();
+			ImGuiListClipper clipper;
+			clipper.Begin((int)visible.size());
+			while (clipper.Step()) {
+				for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {
+					const InventoryRow& r = rows[visible[row]];
+					ImGui::PushID(row);
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::AlignTextToFramePadding();
+					if (r.equipped)
+						ImGui::TextColored(kGold, "%s", r.name.c_str());
+					else if (r.mission)
+						ImGui::TextColored(kWarn, "%s", r.name.c_str());
+					else
+						ImGui::TextUnformatted(r.name.c_str());
+					if (ImGui::BeginItemTooltip()) {
+						ImGui::TextDisabled("%s", r.code.c_str());
+						if (r.equipped)
+							ImGui::TextUnformatted(u8"Nasazeno");
+						if (r.mission)
+							ImGui::TextColored(kWarn, u8"Úkolový předmět");
+						ImGui::EndTooltip();
+					}
+					ImGui::TableNextColumn();
+					ImGui::TextDisabled("%s", CategoryName(r.category));
+					ImGui::TableNextColumn();
+					ImGui::Text("%s", ::GT::Text::Thousands(r.amount).c_str());
+					ImGui::TableNextColumn();
+					ImGui::Text("%d", r.value);
+					ImGui::TableNextColumn();
+					if (r.instance >= 0) {
+						if (ImGui::SmallButton("+1"))
+							GiveItem(r.instance, 1, r.name);
+						ImGui::SameLine();
+						if (ImGui::SmallButton("+10"))
+							GiveItem(r.instance, 10, r.name);
+						ImGui::SameLine();
+						if (ImGui::SmallButton(u8"×2") && r.amount > 0)
+							GiveItem(r.instance, r.amount < 100000 ? r.amount : 100000, r.name);
+						Tooltip(u8"Zdvojnásobí počet kusů");
+					}
+					ImGui::PopID();
+				}
+			}
+			ImGui::EndTable();
+		}
+	}
+
 	static void TabItems() {
 		if (!InGame()) {
 			NotInGame();
@@ -119,8 +239,15 @@ namespace Ui {
 		}
 
 		ItemsUiState& s = g_itemsUi;
+		ImGui::RadioButton(u8"Všechny předměty ze hry", &s.mode, 0);
+		ImGui::SameLine();
+		ImGui::RadioButton(u8"Můj inventář", &s.mode, 1);
 		QuickGold();
 		ImGui::Spacing();
+		if (s.mode == 1) {
+			HeroInventoryView();
+			return;
+		}
 
 		ImGui::SetNextItemWidth(Em(16.0f));
 		ImGui::InputTextWithHint("##search", u8"Hledat název nebo kód…", s.search, sizeof(s.search));

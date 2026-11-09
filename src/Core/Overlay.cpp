@@ -12,6 +12,8 @@
 #include "Text.h"
 #include "Log.h"
 #include "Seh.h"
+#include "ToggleHotkey.h"
+#include "Pointer.h"
 
 namespace GT { namespace Overlay {
 
@@ -22,7 +24,8 @@ namespace GT { namespace Overlay {
 		bool        g_guard = false;
 		double      g_guardStart = 0.0;
 		bool        g_justReleased = false;
-		bool        g_toggleWasDown = false;
+		ToggleHotkey g_hotkey;
+		int         g_hotkeyVk = 0;
 		bool        g_fontsDirty = true;
 		bool        g_textureDirty = true;
 		bool        g_clearInputPending = false;
@@ -118,8 +121,13 @@ namespace GT { namespace Overlay {
 		if (g_contextReady && !g_faulted) {
 			const int toggleVk = Settings::Get().toggleKey;
 			// F10 would otherwise activate the (non-existent) window menu
-			if ((msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP || msg == WM_KEYDOWN || msg == WM_KEYUP) && (int)wp == toggleVk)
+			if ((msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP || msg == WM_KEYDOWN || msg == WM_KEYUP) && (int)wp == toggleVk) {
+				if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+					g_hotkey.KeyDown((lp & (1L << 30)) != 0);
+				else
+					g_hotkey.KeyUp();
 				return 0;
+			}
 
 			if (g_visible) {
 				ImGuiIO& io = ImGui::GetIO();
@@ -360,7 +368,7 @@ namespace GT { namespace Overlay {
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
-		g_iniPath = Paths::SystemDir() + "\\GothicTrainer_okna.ini";
+			g_iniPath = Paths::DataDir() + "\\GothicTrainer_okna.ini";
 		io.IniFilename = g_iniPath.c_str();
 		io.LogFilename = nullptr;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -399,8 +407,11 @@ namespace GT { namespace Overlay {
 		if (visible == g_visible)
 			return;
 		g_visible = visible;
+		Log::Write("Trainer menu %s", visible ? "opened" : "closed");
 		if (visible) {
 			g_guard = false;
+			g_mouse = ImVec2(-1, -1);
+			g_seenDirectInputMouse = false;
 		}
 		else {
 			g_guard = true;
@@ -437,6 +448,7 @@ namespace GT { namespace Overlay {
 		g_faulted = true;
 		g_visible = false;
 		g_guard = false;
+		g_justReleased = true;
 	}
 
 	bool IsFaulted() {
@@ -468,13 +480,15 @@ namespace GT { namespace Overlay {
 	static void FeedInput(const PlatformInput& in, HWND window, bool foreground) {
 		ImGuiIO& io = ImGui::GetIO();
 		const TrainerSettings& s = Settings::Get();
+		io.AddFocusEvent(foreground);
 
-		if (!g_visible) {
+		if (!g_visible || !foreground) {
 			io.MouseDrawCursor = false;
 			io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+			g_wheelAccum = 0.0f;
 			return;
 		}
-		io.MouseDrawCursor = true;
+		io.MouseDrawCursor = false; // explicit foreground cursor below
 
 		if (g_mouse.x < 0.0f || g_mouse.y < 0.0f)
 			g_mouse = ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
@@ -491,7 +505,7 @@ namespace GT { namespace Overlay {
 		if (in.mouseDX != 0.0f || in.mouseDY != 0.0f)
 			g_seenDirectInputMouse = true;
 
-		const bool useSystem = s.systemCursor || !g_seenDirectInputMouse;
+		const bool useSystem = s.systemCursor;
 		if (useSystem) {
 			if (haveSys && (sysMoved || s.systemCursor)) {
 				float cw = (float)ImMax(1L, rc.right - rc.left);
@@ -520,7 +534,7 @@ namespace GT { namespace Overlay {
 			if (std::fabs(wheel) >= 30.0f)
 				wheel /= 120.0f;
 		}
-		else if (useSystem) {
+		else {
 			wheel = g_wheelAccum;
 		}
 		g_wheelAccum = 0.0f;
@@ -572,10 +586,12 @@ namespace GT { namespace Overlay {
 
 		// open / close
 		const int vk = Settings::Get().toggleKey;
-		const bool toggleDown = foreground && (AsyncDown(vk) || in.toggleDown);
-		if (toggleDown && !g_toggleWasDown)
+		if (vk != g_hotkeyVk || !foreground) {
+			g_hotkey.Reset();
+			g_hotkeyVk = vk;
+		}
+		if (foreground && g_hotkey.Update(AsyncDown(vk) || in.toggleDown))
 			SetVisible(!g_visible);
-		g_toggleWasDown = toggleDown;
 
 		UpdateGuard(in, foreground, now);
 
@@ -596,6 +612,8 @@ namespace GT { namespace Overlay {
 			h = (float)ImMax(1L, rc.bottom - rc.top);
 		}
 		io.DisplaySize = ImVec2(w, h);
+		if (Settings::Get().fontSize == 0 && AutoFontPixels(h) != g_fontPx)
+			g_fontsDirty = true;
 
 		if (device != g_device || ddraw != g_ddraw) {
 			ImGuiDX7::Shutdown();
@@ -658,6 +676,9 @@ namespace GT { namespace Overlay {
 		}
 
 		DrawToasts(now);
+		if (g_visible && foreground && g_mouse.x >= 0 && g_mouse.y >= 0) {
+			DrawPointer(ImGui::GetForegroundDrawList(),g_mouse);
+		}
 
 		ImGui::Render();
 		ImGuiDX7::RenderDrawData(ImGui::GetDrawData());

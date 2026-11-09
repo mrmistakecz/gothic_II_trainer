@@ -18,7 +18,7 @@ namespace GT { namespace Log {
 	void Init() {
 		if (g_ready)
 			return;
-		Storage() = Paths::SystemDir() + "\\GothicTrainer.log";
+		Storage() = Paths::DataDir() + "\\GothicTrainer.log";
 		FILE* f = fopen(Storage().c_str(), "w");
 		if (f) {
 			fputs("Gothic Trainer " TRAINER_VERSION "\n", f);

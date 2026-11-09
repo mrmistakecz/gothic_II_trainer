@@ -79,6 +79,7 @@ namespace Ui {
 					st.codePage = p.cp;
 					::GT::Text::SetCodePage((unsigned)p.cp);
 					g_items.ready = false;       // názvy se načtou znovu
+					g_itemsUi.lastDbSize = (size_t)-1;
 					g_waypoints.ready = false;
 					changed = true;
 				}

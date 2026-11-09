@@ -5,3 +5,5 @@
 /.vscode/
 /.idea/
 *.zip
+BUILD_ID.txt
+tools/.zip_manifest.json

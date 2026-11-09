@@ -146,6 +146,8 @@ namespace Ui {
 		const zVEC3 here = player->GetPositionWorld();
 		std::vector<NearbyNpc> nearby;
 		ForEachWorldNpc([&](oCNpc* npc) {
+			if (!NpcActive(npc))
+				return;   // asleep far away: its stored position means nothing
 			float d = DistanceBetween(here, npc->GetPositionWorld());
 			if (d > s.radius)
 				return;
@@ -181,10 +183,12 @@ namespace Ui {
 				int killed = 0;
 				std::vector<oCNpc*> targets;
 				ForEachWorldNpc([&](oCNpc* npc) {
-					if (!npc->IsDead() && npc->IsHostile(player) && DistanceBetween(pos, npc->GetPositionWorld()) <= radius)
+					if (NpcActive(npc) && !npc->IsDead() && npc->IsHostile(player) && DistanceBetween(pos, npc->GetPositionWorld()) <= radius)
 						targets.push_back(npc);
 				});
 				for (oCNpc* npc : targets) {
+					if (!NpcStillExists(npc) || npc->IsDead())
+						continue;
 					npc->attribute[NPC_ATR_HITPOINTS] = 0;
 					npc->DoDie(player);
 					killed++;

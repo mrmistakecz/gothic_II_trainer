@@ -113,7 +113,7 @@ namespace GT { namespace Text {
 
 	std::string Thousands(long long value) {
 		bool neg = value < 0;
-		unsigned long long v = neg ? (unsigned long long)(-value) : (unsigned long long)value;
+		unsigned long long v = neg ? 0ULL - (unsigned long long)value : (unsigned long long)value;
 		std::string digits = std::to_string(v);
 		std::string out;
 		int count = 0;

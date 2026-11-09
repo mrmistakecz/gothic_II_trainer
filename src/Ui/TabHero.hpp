@@ -138,20 +138,23 @@ namespace Ui {
 			RowLabel(r.label);
 			int v = h->hitChance[r.hitChance];
 			ImGui::SetNextItemWidth(Em(12.0f));
-			if (ImGui::SliderInt(r.id, &v, 0, 100, "%d %%"))
-				h->hitChance[r.hitChance] = v;
-			if (ImGui::IsItemDeactivatedAfterEdit()) {
+			if (ImGui::SliderInt(r.id, &v, 0, 100, "%d %%")) {
 				int talent = r.talent;
-				int value = h->hitChance[r.hitChance];
-				Enqueue([talent, value]() {
-					if (InGame())
+				int chance = r.hitChance;
+				int value = v;
+				Enqueue([talent, chance, value]() {
+					if (InGame()) {
+						player->hitChance[chance] = value;
 						player->SetTalentSkill(talent, value >= 60 ? 2 : (value >= 30 ? 1 : 0));
+					}
 				});
 			}
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s", FightSkillName(h->GetTalentSkill(r.talent)));
 		}
 		Tooltip(u8"Od 30 % se hrdina stane bojovníkem, od 60 % mistrem – změní se i animace boje.");
+		ImGui::Checkbox(u8"Nekonečné šípy a šipky", &g_state.infiniteAmmo);
+		Tooltip(u8"K nasazenému luku nebo kuši se munice sama doplňuje (vždy alespoň 50 kusů).");
 	}
 
 	// Runs on the game thread. Returns how many script recipe flags were set.
@@ -225,8 +228,7 @@ namespace Ui {
 		RowLabel(u8"Kruh magie");
 		int circle = h->GetTalentSkill(oCNpcTalent::NPC_TAL_MAGE);
 		ImGui::SetNextItemWidth(Em(12.0f));
-		ImGui::SliderInt("##circle", &circle, 0, 6, circle == 0 ? u8"žádný" : u8"%d. kruh");
-		if (ImGui::IsItemDeactivatedAfterEdit()) {
+		if (ImGui::SliderInt("##circle", &circle, 0, 6, circle == 0 ? u8"žádný" : u8"%d. kruh")) {
 			int value = circle;
 			Enqueue([value]() {
 				if (InGame())
@@ -309,6 +311,9 @@ namespace Ui {
 		ImGui::SeparatorText(u8"Pohyb");
 		ImGui::Checkbox(u8"Rychlý běh", &g_state.fastRun);
 		Tooltip(u8"Stejný efekt jako lektvar rychlosti, ale trvalý.");
+		ImGui::SameLine(Em(11.0f));
+		ImGui::Checkbox(u8"Bez zranění pádem", &g_state.noFallDamage);
+		Tooltip(u8"Pád z jakékoli výšky hrdinovi neublíží. Ostatní zranění platí dál.");
 	}
 
 	static void TabHero() {

@@ -85,6 +85,7 @@ namespace Trainer {
 
 	// Runs on the game thread (action queue).
 	static void BuildItemDatabase() {
+		struct FinishBuild { ~FinishBuild() { g_items.building = false; } } finish;
 		g_items.items.clear();
 		g_items.ready = false;
 		g_items.goldIndex = -1;
@@ -105,6 +106,7 @@ namespace Trainer {
 		}
 
 		int failed = 0;
+		ScriptInstanceScope instanceScope;
 
 		for (int i = 0; i < symbols; i++) {
 			zCPar_Symbol* sym = parser->GetSymbol(i);
@@ -118,9 +120,13 @@ namespace Trainer {
 
 			// a fresh object per instance, so no field leaks from the previous one;
 			// only the script runs, no 3D visual is loaded
-			oCItem* scratch = new oCItem();
-			if (!parser->CreateInstance(i, scratch)) {
-				scratch->Release();
+			auto release = [](oCItem* item) {
+				if (parser)
+					parser->ClearInstanceRefs(item);
+				item->Release();
+			};
+			std::unique_ptr<oCItem, decltype(release)> scratch(new oCItem(), release);
+			if (!parser->CreateInstance(i, scratch.get())) {
 				failed++;
 				continue;
 			}
@@ -155,7 +161,6 @@ namespace Trainer {
 			if (e.code == "ITMI_GOLD")
 				g_items.goldIndex = i;
 
-			scratch->Release();
 			g_items.items.push_back(std::move(e));
 		}
 
@@ -173,6 +178,7 @@ namespace Trainer {
 	struct WaypointEntry {
 		std::string raw;     // game encoding, used for BeamTo
 		std::string name;    // UTF-8
+		std::string label;   // readable Czech description, may be empty
 		std::string folded;
 	};
 
@@ -202,7 +208,8 @@ namespace Trainer {
 			if (e.raw.empty())
 				continue;
 			e.name = ::GT::Text::FromGame(e.raw.c_str());
-			e.folded = ::GT::Text::Fold(e.name);
+			e.label = ReadableWaypoint(e.raw);
+			e.folded = ::GT::Text::Fold(e.label + " " + e.name);
 			g_waypoints.list.push_back(std::move(e));
 		}
 		std::sort(g_waypoints.list.begin(), g_waypoints.list.end(), [](const WaypointEntry& a, const WaypointEntry& b) {
